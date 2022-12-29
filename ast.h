@@ -30,14 +30,19 @@ typedef struct AST_STRUCT {
     AST_INDEXOP,
     AST_FOR,
     AST_STRT,
+    AST_MATCH,
+    AST_IMPORT,
     AST_NULL
   } type;
   List* children;
+
+  unsigned int variable_const;
   struct AST_STRUCT* variable_def_name;
   struct AST_STRUCT* variable_value;
 
   struct AST_STRUCT* function_definition_body;
   struct AST_STRUCT* function_definition_name;
+  struct AST_STRUCT* function_definition_return_value;
   List* function_definition_args;
 
   struct AST_STRUCT* function_call_name;
@@ -48,8 +53,8 @@ typedef struct AST_STRUCT {
   enum TokenType op;
   char* ident_value;
   char* string_value;
-  unsigned long long int_value;
-  double float_value;
+  long long int_value;
+  long double float_value;
 
   struct AST_STRUCT* boolean_left;
   enum TokenType bop;
@@ -66,6 +71,13 @@ typedef struct AST_STRUCT {
   struct AST_STRUCT* struct_name;
   struct AST_STRUCT* struct_body;
 
+  struct AST_STRUCT* enum_name;
+  struct AST_STRUCT* enum_body;
+
+  struct AST_STRUCT* match_body;
+
+  struct AST_STRUCT* import_file;
+
   struct AST_STRUCT* for_var_test;
   struct AST_STRUCT* for_iterator;
   struct AST_STRUCT* for_body;
@@ -79,6 +91,10 @@ typedef struct AST_STRUCT {
   struct AST_STRUCT* index_op_value;
   struct AST_STRUCT* index;
   struct AST_STRUCT* index_left;
+
+  struct AST_STRUCT* access_left;
+  struct AST_STRUCT* access_right;
+  struct AST_STRUCT* access_value;
 
   struct AST_STRUCT* return_value;
 } ast_T;

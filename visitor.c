@@ -6,6 +6,50 @@
 #include "io.h"
 #include "lexer.h"
 #include "parser.h"
+#include <ctype.h>
+#include "./modules/socket.h"
+
+char** split(const char* str, char delimiter, int* num_tokens) {
+    // Calculate the number of tokens in the string
+    int numb_tokens = 0;
+    const char *start = str;
+    while (*start) {
+        if (*start == delimiter) {
+            numb_tokens++;
+        }
+        start++;
+    }
+    // Add 1 to the number of tokens to account for the last token
+    numb_tokens++;
+
+    // Allocate memory for the array of tokens
+    char **tokens = (char **)malloc(numb_tokens * sizeof(char *));
+
+    // Iterate through the string and split it into tokens
+    int i = 0;
+    start = str;
+    while (*start) {
+        const char *end = start;
+        while (*end && *end != delimiter) {
+            end++;
+        }
+        int token_length = end - start;
+        tokens[i] = (char *)malloc((token_length + 1) * sizeof(char));
+        memcpy(tokens[i], start, token_length);
+        tokens[i][token_length] = '\0';
+        i++;
+        start = end;
+        if (*start) {
+            start++;
+        }
+    }
+
+    // Set the number of tokens in the output variable
+    *num_tokens = numb_tokens;
+
+    return tokens;
+}
+
 visitor_T* init_visitor() {
   visitor_T* vs = calloc(1, sizeof(visitor_T));
   return vs;
@@ -24,22 +68,17 @@ ast_T* first_index(ast_T* ast) {
     fprintf(stderr, "Type %s is not iterable\n", astt(ast->type));
     exit(1);
   }
-  if(ast->type == AST_ARRAY) {
-    if(ast->array_children->used == 0) {
-      fprintf(stderr, "Array is empty\n");
-      exit(1);
-    }
-  } else if(ast->type == AST_STRING) {
-    if(strlen(ast->string_value) == 0) {
-      fprintf(stderr, "String is empty\n");
-      exit(1);
-    }
-  }
     
   if(ast->type == AST_ARRAY) {
+    if(ast->array_children->used == 0) {
+      return NULL;
+    }
     ast_T* first = ast->array_children->items[0];
     return first; 
   } else {
+    if(strlen(ast->string_value) == 0) {
+      return NULL;
+    }
     ast_T* first = init_ast(AST_STRING);
     first->string_value = toss(ast->string_value[0]);
     return first;
@@ -109,8 +148,8 @@ ast_T* run_boolexpr(visitor_T* visitor, ast_T* node) {
       if(left->type == AST_INT && right->type== AST_FLOAT) {
         ast->boolean_value = left->int_value == left->float_value;
       } else {
-        fprintf(stderr, "Cannot use operator '==' with %s", astt(left->type));
-        exit(1);
+       ast->boolean_value = 0;
+      
       }
     }
   }
@@ -214,6 +253,8 @@ ast_T* run_boolexpr(visitor_T* visitor, ast_T* node) {
           ast->boolean_value = left->boolean_value != right->boolean_value;
           break;
       }
+    } else {
+      ast->boolean_value = 0;
     }
   }
   else if(op == And) {
@@ -267,7 +308,7 @@ ast_T* run_ast(visitor_T* visitor, ast_T* ast) {
   right = visitor_visit(visitor, ast->right);
 
   
-
+  
   if(left->type == AST_INT && right->type == AST_INT) {
     value = init_ast(AST_INT);
     if(op==Plus){
@@ -305,7 +346,6 @@ ast_T* run_ast(visitor_T* visitor, ast_T* ast) {
       strcat(buffer, left->string_value);
       strcat(buffer, right->string_value);
       value->string_value = buffer;
-      free(buffer);
     }
     else {
       fprintf(stderr, "UnsupportedOperationError:  Cannot use operation '%s' with string and string\n", typeToStr(op));
@@ -318,8 +358,82 @@ ast_T* run_ast(visitor_T* visitor, ast_T* ast) {
   return value;
 }
 
+ast_T* run_access(visitor_T* visitor, ast_T* ast) {
+  ast_T* value;
+  ast_T* left  = visitor_visit(visitor, ast->access_left);
+  ast_T* right  = ast->access_right;
+
+  if(left->type == AST_STRING) {
+    if(right->type == AST_FUNCTION_CALL) {
+      if(strcmp(right->function_call_name->ident_value, "upper") == 0) {
+        char* new_value = (char*)calloc(strlen(left->string_value) + 1, sizeof(char));
+
+        for(int i = 0; i < strlen(left->string_value); i++) {
+          strcat(new_value, toss(toupper(left->string_value[i])));
+        }
+        value = init_ast(AST_STRING);
+        value->string_value = new_value;
+        return value;
+      } 
+      else if(strcmp(right->function_call_name->ident_value, "lower") == 0) {
+        char* new_value = (char*)calloc(strlen(left->string_value) + 1, sizeof(char));
+
+        for(int i = 0; i < strlen(left->string_value); i++) {
+          strcat(new_value, toss(tolower(left->string_value[i])));
+        }
+        value = init_ast(AST_STRING);
+        value->string_value = new_value;
+        return value;
+      } else if(strcmp(right->function_call_name->ident_value, "split") == 0) {
+        ast_T* ast = init_ast(AST_ARRAY);
+        if(right->function_call_args->used == 0) {
+          for(int i = 0; i < strlen(left->string_value); i++) {
+            ast_T* new_ast = init_ast(AST_STRING);
+            new_ast->string_value = toss(left->string_value[i]);
+            list_push(ast->array_children, new_ast);
+          }
+          return ast;
+        }
+
+        if(right->function_call_args->used > 1) {
+          fprintf(stderr, "`split` function in string object, only has 0 or 1 arguments (got %zu)\n", right->function_call_args->used);
+          exit(1);
+        }
+        ast_T* delim = visitor_visit(visitor, (ast_T*)right->function_call_args->items[0]);
+        
+        int number_tokens = 0;
+
+        char** test = split(left->string_value, *delim->string_value, &number_tokens);
+
+        for(int i = 0; i < number_tokens; i++) {
+          ast_T* new_ast = init_ast(AST_STRING);
+          new_ast->string_value = test[i];
+          list_push(ast->array_children, new_ast);
+        }
+        return ast;
+      }  else if(strcmp(right->function_call_name->ident_value, "join") == 0) {
+        visitor_expect_args(visitor, right->function_call_args, 2, (int[]){AST_ARRAY, AST_STRING});
+        ast_T* arr = visitor_visit(visitor, (ast_T*)right->function_call_args->items[0]);
+        ast_T* by = visitor_visit(visitor, (ast_T*)right->function_call_args->items[1]);
+        char* buf = (char*)calloc(arr->array_children->used * 100, sizeof(char));
+        for(int i = 0; i < arr->array_children->used; i++) {
+          strcat(buf, ((ast_T*)arr->array_children->items[0])->string_value);
+          strcat(buf, by->string_value);
+        }
+        ast_T* value = init_ast(AST_STRING);
+        value->string_value = buf;
+        return value;
+    }
+  }
+  }
+  fprintf(stderr, "AttributeError: no function called '%s' in %s object\n", right->function_call_name->ident_value, astt(left->type));
+  exit(1);
+}
+
 
 ast_T* visitor_visit(visitor_T* visitor, ast_T* node) {
+    if(!node) return init_ast(AST_NULL);
+    
     switch (node->type)
     {
         case AST_VARIABLE_DEF: return visitor_visit_variable_def(visitor, node); break;
@@ -344,6 +458,9 @@ ast_T* visitor_visit(visitor_T* visitor, ast_T* node) {
       case AST_WHILE: return visitor_visit_while(visitor, node);
       case AST_VARIABLE_REASSIGNMENT: return visitor_visit_variable_reassignment(visitor, node);
       case AST_INDEXOP: return visitor_visit_indexop(visitor, node);
+      case AST_MATCH: return visitor_visit_match(visitor, node);
+      case AST_IMPORT: return visitor_visit_import(visitor, node);
+      case AST_ACCESS: return run_access(visitor, node);
         case AST_NULL: return node; break;
     }
     fprintf(stderr, "Uncaught statement of type `%d`\n", node->type);
@@ -362,21 +479,16 @@ ast_T* visitor_visit_variable_def(visitor_T* visitor, ast_T* node) {
 }
 ast_T* visitor_visit_function_def(visitor_T* visitor, ast_T* node) { 
   scope_add_func(node->scope, node);
-  // check for main function
-  if(scope_get_func(node->scope, "main") != NULL) {
-    ast_T* fn = scope_get_func(node->scope, "main");
-    
-  }
-    
   return node;
 }
 ast_T* visitor_visit_variable(visitor_T* visitor, ast_T* node) {
   ast_T* vdef = scope_get_var(node->scope, node->variable_name->ident_value);
   if(vdef != NULL) {
     return visitor_visit(visitor, vdef->variable_value);
+  } else {
+    fprintf(stderr, "Uncaught error: variable '%s' is not defined\n", node->variable_name->ident_value);
+    exit(1);
   }
-  fprintf(stderr, "Uncaught error: %s is not defined\n", node->variable_name->ident_value);
-  exit(1);
 }
 ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
 
@@ -385,8 +497,8 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
       ast_T* visited_ast = visitor_visit(visitor, node->function_call_args->items[i]);
       switch(visited_ast->type) {
         case AST_STRING: printf("%s ", visited_ast->string_value);break;
-        case AST_INT: printf("%llu ", visited_ast->int_value);break;
-        case AST_FLOAT: printf("%f ", visited_ast->float_value);break;
+        case AST_INT: printf("%lld ", visited_ast->int_value);break;
+        case AST_FLOAT: printf("%Lf ", visited_ast->float_value);break;
         case AST_BOOL: printf("%s ", (visited_ast->boolean_value ? "true" : "false"));break;
         case AST_ARRAY: {
           printf("[");
@@ -406,7 +518,7 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
             printf("%llu ", ast_data->int_value);             
           }
           else if(ast_data->type == AST_FLOAT) {
-            printf("%f ", ast_data->float_value);             
+            printf("%Lf ", ast_data->float_value);             
           } else {
           printf("%s ", ast_data->string_value);               
           }
@@ -423,8 +535,8 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
       ast_T* visited_ast = visitor_visit(visitor, node->function_call_args->items[i]);
       switch(visited_ast->type) {
         case AST_STRING: printf("%s", visited_ast->string_value);break;
-        case AST_INT: printf("%llu", visited_ast->int_value);break;
-        case AST_FLOAT: printf("%f", visited_ast->float_value);break;
+        case AST_INT: printf("%lld", visited_ast->int_value);break;
+        case AST_FLOAT: printf("%Lf", visited_ast->float_value);break;
         case AST_BOOL: printf("%s", (visited_ast->boolean_value ? "true" : "false"));break;
         case AST_ARRAY: {
           printf("[");
@@ -444,7 +556,7 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
             printf("%llu", ast_data->int_value);             
           }
           else if(ast_data->type == AST_FLOAT) {
-            printf("%f", ast_data->float_value);             
+            printf("%Lf", ast_data->float_value);             
           } else {
           printf("%s", ast_data->string_value);               
           }
@@ -504,7 +616,7 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
     } else if(visited_ast->type == AST_FLOAT) {
       ast_T* a = init_ast(AST_STRING);
       a->string_value = (char*)calloc(100, sizeof(char));
-      sprintf(a->string_value, "%f", visited_ast->float_value);
+      sprintf(a->string_value, "%Lf", visited_ast->float_value);
       return a;
     } else if(visited_ast->type == AST_STRING) {
       ast_T* a = init_ast(AST_STRING);
@@ -644,6 +756,80 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
     }
     return init_ast(AST_NULL);
   }
+  if(strcmp(node->function_call_name->ident_value, "array_extend") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 3, (int[]){AST_ARRAY, AST_INT, AST_ANY});
+    ast_T* visited_ast = visitor_visit(visitor, node->function_call_args->items[0]);
+    ast_T* amt = visitor_visit(visitor, node->function_call_args->items[1]);
+    ast_T* new_appendee = visitor_visit(visitor, node->function_call_args->items[2]);
+    for(int i = 0; i < amt->int_value; i++) {
+      list_push(visited_ast->array_children, new_appendee);
+    }
+
+    if(((ast_T*)node->function_call_args->items[0])->type == AST_VARIABLE) {
+      int r = scope_get_varindex(node->scope, ((ast_T*)node->function_call_args->items[0])->variable_name->ident_value);
+      ((ast_T*)node->scope->vars->items[r])->variable_value = visited_ast;
+    } else {
+      return init_ast(AST_NULL);
+    }
+    return init_ast(AST_NULL);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_create") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 3, (int[]){AST_INT, AST_INT, AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 3; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_create(iargs);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_bind") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 3, (int[]){AST_INT, AST_STRING, AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 3; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_bind(iargs);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_listen") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 2, (int[]){AST_INT, AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 2; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_listen(iargs);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_accept") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 1, (int[]){AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 1; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_accept(iargs);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_read") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 3, (int[]){AST_INT, AST_STRING, AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 3; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_read(iargs);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_write") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 3, (int[]){AST_INT, AST_STRING, AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 3; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_write(iargs);
+  }
+  if(strcmp(node->function_call_name->ident_value, "socket_close") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 1, (int[]){AST_INT});
+    List* iargs = init_list(sizeof(ast_T*));
+    for(int i = 0; i < 1; i++) {
+      list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
+    }
+    return socket_socket_close(iargs);
+  }
+  
     
   
   ast_T* fdef = scope_get_func(node->scope, node->function_call_name->ident_value);
@@ -677,11 +863,11 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
     scope_add_var(fdef->function_definition_body->scope, ast_vardef);
   }
   f = visitor_visit(visitor, fdef->function_definition_body);
-  for(int i = 0; i < fdef->function_definition_body->scope->vars->used; i++) {
+  /*for(int i = 0; i < fdef->function_definition_body->scope->vars->used; i++) {
     char* varname = ((ast_T*)fdef->function_definition_body->scope->vars->items[i])->variable_def_name->ident_value;
     scope_remove_var(fdef->function_definition_body->scope, varname);
-  }
-    return f;
+  }*/
+    return visitor_visit(visitor,fdef->function_definition_return_value);
 }
 
 ast_T* visitor_visit_return(visitor_T* visitor, ast_T* node) {
@@ -736,7 +922,7 @@ ast_T* visitor_visit_for(visitor_T* visitor, ast_T* node) {
   ast_T* vardef = init_ast(AST_VARIABLE_DEF);
   vardef->variable_def_name = ast->for_var_test;
   vardef->variable_value = first_index(ast->for_iterator);
-//if(vardef->variable_value->type == AST_NULL) return init_ast(AST_NULL);
+if(!vardef->variable_value) return init_ast(AST_NULL);
   scope_add_var(node->scope, vardef);
   int index = scope_get_varindex(node->scope, vardef->variable_def_name->ident_value);
   if(ast->for_iterator->type == AST_ARRAY) {
@@ -747,7 +933,14 @@ ast_T* visitor_visit_for(visitor_T* visitor, ast_T* node) {
       // run code
       for(int j = 0; j < node->for_body->children->used; j++) {
         ast_T* line = (ast_T*)node->for_body->children->items[j];
+      if(line->type == AST_BREAK) {
+        break;
+      }
+      if(line->type == AST_CONTINUE) {
+        continue;
+      }
         visitor_visit(visitor, line);
+        
       }
       scope_remove_var(node->scope, vardef->variable_def_name->ident_value);
     }
@@ -760,6 +953,12 @@ ast_T* visitor_visit_for(visitor_T* visitor, ast_T* node) {
       node->scope->vars->items[index] = vardef;
       for(int j = 0; j < node->for_body->children->used; j++) {
         ast_T* line = (ast_T*)node->for_body->children->items[j];
+      if(line->type == AST_BREAK) {
+        break;
+      }
+      if(line->type == AST_CONTINUE) {
+        continue;
+      }
         visitor_visit(visitor, line);
       }
       scope_remove_var(node->scope, vardef->variable_def_name->ident_value);
@@ -776,7 +975,7 @@ ast_T* visitor_visit_while(visitor_T* visitor, ast_T* node) {
   ast_T* ast = init_ast(AST_WHILE);
   ast_T* st= node->while_condition;
   node->while_condition = run_boolexpr(visitor, st);
-  
+  node->while_body->scope = init_scope();
   while(node->while_condition->boolean_value) {
     for(int i = 0; i < node->while_body->children->used; i++) {
       ast_T* item = (ast_T*)node->while_body->children->items[i];
@@ -788,7 +987,9 @@ ast_T* visitor_visit_while(visitor_T* visitor, ast_T* node) {
       }
 
       visitor_visit(visitor, item);
-      
+      for(int i = 0; i < node->while_body->scope->vars->used; i++) {
+        scope_remove_var(node->while_body->scope, ((ast_T*)node->while_body->scope->vars->items[i])->variable_def_name->ident_value);
+      }
     }
     // get both int value
     node->while_condition = run_boolexpr(visitor, st);
@@ -852,8 +1053,11 @@ ast_T* visitor_visit_variable_reassignment(visitor_T* visitor, ast_T* node) {
     fprintf(stderr, "Oops: all null!");
     exit(1);
   }
+  if(new_var->variable_const) {
+    fprintf(stderr, "ConstError: Variable '%s' cannot be reassigned because it is declared constant\n\tTry: removing 'const' modifier on variable declaration for '%s'", newv->variable_def_name->variable_name->ident_value,newv->variable_def_name->variable_name->ident_value);
+    exit(1);
+  }
   if(newv->vop == PlusEq) {
-
     if(new_var->variable_value->type == AST_INT) {
       new_var->variable_value->int_value += newv->variable_reassignment_value->int_value;
     } else if(new_var->variable_value->type == AST_FLOAT) {
@@ -866,16 +1070,43 @@ ast_T* visitor_visit_variable_reassignment(visitor_T* visitor, ast_T* node) {
     }
   } 
   if(newv->vop == MinusEq) {
-    new_var->variable_value->int_value -= newv->variable_reassignment_value->int_value;
+    if(new_var->variable_value->type == AST_INT) {
+      new_var->variable_value->int_value -= newv->variable_reassignment_value->int_value;
+    } else if(new_var->variable_value->type == AST_FLOAT) {
+      new_var->variable_value->float_value -= newv->variable_reassignment_value->float_value;
+    } else if(new_var->variable_value->type == AST_STRING) {
+      fprintf(stderr, "UnsupportedOperationError: cannot use operator '-' with string and string\n");
+      exit(1);
+    }
   }
   if(newv->vop == AsteriskEq) {
-    new_var->variable_value->int_value *= newv->variable_reassignment_value->int_value;
+     if(new_var->variable_value->type == AST_INT) {
+      new_var->variable_value->int_value *= newv->variable_reassignment_value->int_value;
+    } else if(new_var->variable_value->type == AST_FLOAT) {
+      new_var->variable_value->float_value *= newv->variable_reassignment_value->float_value;
+    } else if(new_var->variable_value->type == AST_STRING) {
+      fprintf(stderr, "UnsupportedOperationError: cannot use operator '*' with string and string\n");
+      exit(1);
+    }
   }
   if(newv->vop == SlashEq) {
-    new_var->variable_value->int_value /= newv->variable_reassignment_value->int_value;
+     if(new_var->variable_value->type == AST_INT) {
+      new_var->variable_value->int_value /= newv->variable_reassignment_value->int_value;
+    } else if(new_var->variable_value->type == AST_FLOAT) {
+      new_var->variable_value->float_value /= newv->variable_reassignment_value->float_value;
+    } else if(new_var->variable_value->type == AST_STRING) {
+      fprintf(stderr, "UnsupportedOperationError: cannot use operator '/' with string and string\n");
+      exit(1);
+    }
   }
   if(newv->vop == Eq) {
-    new_var->variable_value->int_value = newv->variable_reassignment_value->int_value;
+     if(new_var->variable_value->type == AST_INT) {
+      new_var->variable_value->int_value = newv->variable_reassignment_value->int_value;
+    } else if(new_var->variable_value->type == AST_FLOAT) {
+      new_var->variable_value->float_value = newv->variable_reassignment_value->float_value;
+    } else if(new_var->variable_value->type == AST_STRING) {
+      new_var->variable_value->string_value = newv->variable_reassignment_value->string_value;
+    }
   }
   node->scope->vars->items[ind] = new_var;
   
@@ -909,12 +1140,36 @@ ast_T* visitor_visit_indexop(visitor_T* visitor, ast_T* node) {
   ast_T* as_ele;
   if(((ast_T*)ast->index_op_value)->type == AST_STRING)
   {
-    ast_T* string = init_ast(AST_NULL);
+    ast_T* string = init_ast(AST_STRING);
     string->string_value = toss(((ast_T*)ast->index_op_value)->string_value[ast->index->int_value]);
+    return string;
   } else if(((ast_T*)ast->index_op_value)->type == AST_ARRAY) { 
     return ((ast_T*)ast->index_op_value->array_children->items[ast->index->int_value]);
   }
   ast_T* ast_ele = init_ast(AST_NULL);
   ast_ele = (ast_T*)ast->index_op_value->array_children->items[ast->index->int_value];
   return ast_ele;
+}
+
+ast_T* visitor_visit_import(visitor_T* visitor, ast_T* node) {
+  ast_T* visited_ast = visitor_visit(visitor, node->import_file);
+  if(strstr(visited_ast->string_value, ".ppl") == NULL) {
+    char* news = visited_ast->string_value;
+    visited_ast->string_value = (char*)calloc(strlen(visited_ast->string_value)+4, sizeof(char));
+    strcat(visited_ast->string_value, news);
+    strcat(visited_ast->string_value, ".ppl");
+  }
+  char* data = read_file_contents(visited_ast->string_value);
+  
+  Lexer_t* l = init_lexer(data);
+  
+  parser_T* p = init_parser(l);
+  ast_T* root = parser_parse(p, p->scope);
+  visitor_T* vis = init_visitor();
+  visitor_visit(vis, root);
+  return node;
+}
+
+ast_T* visitor_visit_match(visitor_T* visitor, ast_T* node) {
+  return node;
 }

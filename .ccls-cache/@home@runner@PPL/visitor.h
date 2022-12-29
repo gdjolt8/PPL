@@ -23,8 +23,11 @@ ast_T* visitor_visit_break(visitor_T* visitor, ast_T* node);
 ast_T* visitor_visit_continue(visitor_T* visitor, ast_T* node);
 ast_T* visitor_visit_indexop(visitor_T* visitor, ast_T* node);
 ast_T* visitor_visit_array(visitor_T* visitor, ast_T* node);
+ast_T* visitor_visit_match(visitor_T* visitor, ast_T* node);
+ast_T* visitor_visit_import(visitor_T* visitor, ast_T* node);
 ast_T* visitor_visit_variable_reassignment(visitor_T* visitor, ast_T* node);
 ast_T* visitor_visit_boolean_expr(visitor_T* visitor, ast_T* node);
+ast_T* run_access(visitor_T* visitor, ast_T* ast);
 ast_T* run_boolexpr(visitor_T* visitor, ast_T* node);
 void visitor_expect_args(visitor_T* visitor, List* args, int argc, int arguments[]);
 #endif

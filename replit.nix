@@ -1,6 +1,7 @@
 { pkgs }: {
 	deps = [
-		pkgs.strace
+		pkgs.nasm
+  pkgs.strace
   pkgs.valgrind
   pkgs.clang_12
 		pkgs.ccls

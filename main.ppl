@@ -1,8 +1,33 @@
-var a = []
+var port = 870
+var address = "127.0.0.1"
 
-for i in range(100) {
-  append(a, i)
+var server = socket_create(2, 1, 6)
+if(server < 0) {
+  println("Socket failed")
+  exit(1)
 }
-
-print(a[4])
-println()
+var bindee = socket_bind(server, address, port)
+if(bindee < 0) {
+  println("Bind failed")
+  exit(1)
+}
+var ls = socket_listen(server, 10)
+if(ls < 0) {
+  println("Listen failed")
+  exit(1)
+}
+while (1 == 1) {
+  var client = socket_accept(server)
+  var request = ""
+  var n = socket_read(server, request, 1024)
+  if(n < 0) {
+    println("read")
+    exit(1)
+  }
+  var headers ="HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
+  var body =  "<h1>Hello, World!</h1>"
+  write(client, headers, len(headers))
+  write(client, body, len(body))
+  socket_close(client)
+}
+socket_close(server)

@@ -22,7 +22,6 @@ ast_T* init_ast(int type) {
   ast->function_definition_args = ast->type==AST_FUNCTION_DEFINITION ? init_list(sizeof(ast_T*)) : NULL;
   ast->variable_name = NULL;
   ast->variable_value = NULL;
-  ast->scope = init_scope();
   ast-> if_condition = NULL;
   ast-> if_body = NULL;
   ast->return_value = NULL;
@@ -32,8 +31,10 @@ ast_T* init_ast(int type) {
 }
 
 char* ast_to_string(ast_T*ast){
-  char* bufo = calloc(1024*1024, sizeof(char));
+  char* bufo = calloc(1, sizeof(char));
+  bufo[0] = '\0';
   if(ast->type == AST_ARRAY){
+        bufo = realloc(bufo, ast->array_children->used*100);
         strcat(bufo, "[");
     
         for(int i = 0; i < ast->array_children->used; i++) {
@@ -50,15 +51,19 @@ char* ast_to_string(ast_T*ast){
   }
   switch(ast->type) {
     case AST_INT:
-      sprintf(bufo, "%llu", ast->int_value);
+      bufo = realloc(bufo, 16);
+      sprintf(bufo, "%lld", ast->int_value);
       break;
     case AST_FLOAT:
+      bufo = realloc(bufo, 32);
       sprintf(bufo, "%f", ast->float_value);
       break;
     case AST_STRING:
+      bufo = realloc(bufo, strlen(ast->string_value)+1);
       sprintf(bufo, "\'%s\'", ast->string_value);
       break;
     case AST_BOOL:
+      bufo = realloc(bufo, 6);
       sprintf(bufo, "%s", ast->boolean_value? "true" : "false");
       break;
     /*case AST_BINOP: {
@@ -75,6 +80,7 @@ char* ast_to_string(ast_T*ast){
         case AST_NULL: printf("nil"); break;
       }*/
     case AST_FUNCTION_CALL:
+      bufo = realloc(bufo, 100);
       sprintf(bufo, "%s(", ast->function_call_name->ident_value);
       for(int i=0; i<ast->function_call_args->used; i++) {
         ast_T* arg = (ast_T*)ast->function_call_args->items[i];
@@ -88,6 +94,7 @@ char* ast_to_string(ast_T*ast){
       break;
   } 
   if(strlen(bufo) == 0){
+    bufo = realloc(bufo, 50);
     sprintf(bufo, "%p", &ast);
   }
   return bufo;

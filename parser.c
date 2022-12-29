@@ -24,20 +24,20 @@ unsigned int peek_is_atype(parser_T* p) {
 
 
 void add_error(parser_T* p, char* msg) {
-  char* msg2 = calloc(strlen(msg)+350, sizeof(char));
-  sprintf(msg2, "[Line %d, Column %d] %s", p->l->line, p->l->column, msg);
-  list_push(p->errors, msg2);
-  printf("%s\n", msg2);
+  char* Msg = calloc(strlen(msg) + 50, sizeof(char));
+  sprintf(Msg, "[Line %d, Column %d] %s", p->l->line, p->l->column, msg);
+  list_push(p->errors, Msg);
+  printf("%s\n", p->errors[p->errors->used - 1]);
+  free(Msg);
   exit(1);
-  free(msg2);
 }
 
 void peek_error(parser_T* p, enum TokenType typ, Token_t* kind) {
-  if(!(typ==kind->kind)){
-  char* msg2 = calloc(1000, sizeof(char));
-  sprintf(msg2, "Expected %s got '%s'", typeToStr(typ), kind->text);
-  add_error(p, msg2);
-  }
+  /*if(!(typ==kind->kind)){
+    char* msg = calloc(1000, sizeof(char));
+    sprintf(msg2, "Expected %s got '%s'", typeToStr(typ), kind->text);
+    add_error(p, msg2);
+  }*/
 }
 
 void parser_eat(parser_T* p, enum TokenType typ) {
@@ -79,8 +79,10 @@ ast_T* parse_statement(parser_T* p, scope_T* scope) {
       case KW_Var: return parse_var_declaration(p, scope);
       case KW_Func: return parse_func_def(p, scope);
       case Ident: 
-        if(peek_is_atype(p))
+        if(peek_is_atype(p)) {
+          printf("Is atype\n");
           return parse_variable_reassignment(p, scope);
+        }
         return parse_variable(p, scope);
       case KW_Return: return parse_return(p, scope);
       case KW_If: return parse_if_statement(p, scope);
@@ -88,7 +90,8 @@ ast_T* parse_statement(parser_T* p, scope_T* scope) {
       case KW_While: return parse_while_statement(p, scope);
       case KW_Break: return parse_break(p, scope);
       case KW_Continue: return parse_continue(p, scope);
-    
+      case KW_Match: return parse_match(p, scope);
+      case KW_Import: return parse_import(p, scope);
   }
   return init_ast(AST_NULL);
 
@@ -98,9 +101,14 @@ ast_T* parse_statementss(parser_T* p, scope_T* scope) {
   ast_T* compound = init_ast(AST_COMPOUND);
   compound->scope = scope;
   ast_T* ast_statement = parse_statement(p, scope);
+  ast_statement->scope = scope;
+  
   list_push(compound->children, ast_statement);
   while(!curTokenIs(p, Rbrace)) {
+    if(curTokenIs(p, Rparen)) parser_eat(p, Rparen);
+    if(curTokenIs(p, Semicolon)) parser_eat(p, Semicolon);
     ast_statement = parse_statement(p, scope);
+    ast_statement->scope = scope;
     if(ast_statement) {
         list_push(compound->children, ast_statement);
     }
@@ -144,7 +152,8 @@ ast_T* parse_float(parser_T* p, scope_T* scope) {
 }
 ast_T* parse_string(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_STRING);
-  ast->string_value = p->curToken->text;
+  ast->string_value = (char*)calloc(strlen(p->curToken->text)+1, sizeof(char));
+  strcpy(ast->string_value, p->curToken->text);
   ast->scope = scope;
   return ast;
 }
@@ -161,18 +170,12 @@ ast_T* parse_expr(parser_T* p, scope_T* scope) {
       if(peek_is_atype(p)) {
         return parse_variable_reassignment(p, scope);
       }
-      if(peekTokenIs(p, Lbrack)) {
-        return parse_index_op(p, scope);
-      }
       return parse_variable(p,scope);
     case Int:
       return parse_int(p, scope);
     case Float:
       return parse_float(p, scope);
     case String:
-      if(peekTokenIs(p, Lbrack)) {
-        return parse_index_op(p, scope);
-      }
       return parse_string(p, scope);
     case Lbrack:
       return parse_array(p, scope);
@@ -183,14 +186,23 @@ ast_T* parse_expr(parser_T* p, scope_T* scope) {
       return parse_var_declaration(p, scope);
     case KW_Func:
       return parse_func_def(p, scope);
-    default:
+    default: {
+      fprintf(stderr, "Unexpected expression: '%s'\n", p->curToken->text);
+      exit(1);
       return init_ast(AST_NULL);
+    }
   }
 }
 
 ast_T* parse_var_declaration(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_VARIABLE_DEF);
   parser_eat(p, KW_Var); // iden
+  if(curTokenIs(p, KW_Const)) {
+    ast->variable_const = 1;
+    parser_eat(p, KW_Const);
+  } else {
+    ast->variable_const = 0;
+  }
   ast->variable_def_name = parse_ident(p, scope);
   parser_eat(p, Ident); // eq
   if(curTokenIs(p, Semicolon)) {
@@ -208,6 +220,7 @@ ast_T* parse_func_call(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_FUNCTION_CALL);
   ast->function_call_name = parse_ident(p, scope);
   ast->function_call_args=init_list(sizeof(ast_T*));
+  ast->scope = scope;
   parser_eat(p, Ident);
   parser_eat(p, Lparen); // expr or rparen
   if(!curTokenIs(p, Rparen)) {
@@ -218,7 +231,7 @@ ast_T* parse_func_call(parser_T* p, scope_T* scope) {
     parser_eat(p, Comma);
     list_push(ast->function_call_args, parse_binop(p, scope));    
   }
-  ast->scope = scope;
+  
   return ast;
 }
 ast_T* parse_func_def(parser_T* p, scope_T* scope) {
@@ -243,18 +256,36 @@ ast_T* parse_func_def(parser_T* p, scope_T* scope) {
   parser_eat(p, Rparen);
   parser_eat(p, Lbrace);
   ast_T* compound = init_ast(AST_COMPOUND);
-  compound->scope = scope;
+  ast->function_definition_return_value = init_ast(AST_NULL);
   ast_T* ast_statement = parse_statement(p, scope);
+  ast_statement->scope = scope;
+  int return_amounts = 0;
+  
   list_push(compound->children, ast_statement);
+  if(ast_statement->type == AST_STMT_RETURN) {
+      
+      if(return_amounts < 1)
+        ast->function_definition_return_value = ast_statement->return_value;
+      return_amounts++;
+    }
   while(!curTokenIs(p, Rbrace)) {
     if(curTokenIs(p, Rparen)) parser_eat(p, Rparen);
     if(curTokenIs(p, Semicolon)) parser_eat(p, Semicolon);
     ast_statement = parse_statement(p, scope);
-    if(ast_statement) {
+  ast_statement->scope = scope;
+
+    if(ast_statement->type == AST_STMT_RETURN) {
+      
+      if(return_amounts < 1)
+        ast->function_definition_return_value = ast_statement->return_value;
+        return_amounts++;
+    }
+    if(ast_statement && return_amounts < 1) {
         list_push(compound->children, ast_statement);
     }
   }
   ast->function_definition_body = compound;
+  ast->function_definition_body->scope = scope;
   ast->scope = scope;
   return ast;
 }
@@ -276,10 +307,22 @@ ast_T* parse_array(parser_T* p, scope_T* scope) {
 ast_T* parse_variable(parser_T* p, scope_T* scope) {
   ast_T* ast_variable = init_ast(AST_VARIABLE);
   ast_variable->variable_name = parse_ident(p, scope);
+  ast_variable->scope = scope;
   if(peekTokenIs(p, Lparen)) {
     return parse_func_call(p, scope);
   }
-  ast_variable->scope = scope;
+  if(!peekTokenIs(p, Dot)) {
+    return ast_variable;
+  }
+  next_token(p);
+  while(curTokenIs(p, Dot)) {
+    ast_T* ast_accop = init_ast(AST_ACCESS);
+    ast_accop->access_left = ast_variable;
+    parser_eat(p, Dot);
+    ast_accop->access_right = parse_expr(p, scope);
+    ast_accop->scope = scope;
+    return ast_accop;
+  }
   return ast_variable;
 }
 
@@ -293,17 +336,22 @@ ast_T* parse_nil(parser_T* p, scope_T* scope) {
 
 ast_T* parse_term(parser_T* p, scope_T* scope) {
   ast_T* ast_left = parse_expr(p, scope);
+  if(p->curToken->kind == Lbrack) {
+    return ast_left;
+  }
   next_token(p);
+  // Asterisk
   while (
     curTokenIs(p, Asterisk) ||
     curTokenIs(p, Slash)
   ) {
     ast_T* ast_binop = init_ast(AST_BINOP);
-    ast_binop->left = ast_left;
-    ast_binop->op = p->curToken->kind;
+    ast_binop->left = ast_left; // 5
+    ast_binop->op = p->curToken->kind; // *
     next_token(p);
-    ast_binop->right = parse_expr(p, scope);
-    next_token(p);
+    // 6
+    ast_binop->right = parse_expr(p, scope); // 6
+    next_token(p); // )
     ast_binop->scope = scope;
     return ast_binop;
   }
@@ -312,7 +360,7 @@ ast_T* parse_term(parser_T* p, scope_T* scope) {
 }
 
 ast_T* parse_binop(parser_T* p, scope_T* scope) {
-  ast_T* ast_left = parse_term(p, scope);
+  ast_T* ast_left = parse_term(p, scope); // )
   while(
     curTokenIs(p, Plus) ||
     curTokenIs(p, Minus)
@@ -325,6 +373,20 @@ ast_T* parse_binop(parser_T* p, scope_T* scope) {
     ast_binop->scope = scope;
     return ast_binop;
   }
+
+  while(
+    curTokenIs(p, Lbrack) 
+  ) {
+    ast_T* ast_indop = init_ast(AST_INDEXOP);
+    ast_indop->index_op_value = ast_left;
+    next_token(p); // m
+    ast_indop->index = parse_binop(p, scope);
+    parser_eat(p, Rbrack);
+    ast_indop->scope = scope;
+    return ast_indop;
+  }
+  
+  
   return ast_left;
 }
 ast_T* parse_return(parser_T* p, scope_T* scope) {
@@ -343,23 +405,22 @@ ast_T* parse_if_statement(parser_T* p, scope_T* scope) {
   ast->if_condition = parse_boolean_expr(p, scope);
   parser_eat(p, Rparen);
   parser_eat(p, Lbrace);
-  ast_T* compound = init_ast(AST_COMPOUND);
-  compound->scope = scope;
-  ast_T* ast_statement = parse_statement(p, scope);
-  list_push(compound->children, ast_statement);
-
-  while(!curTokenIs(p, Rbrace)) {
-    if(curTokenIs(p, Rparen)) parser_eat(p, Rparen);
-    if(curTokenIs(p, Semicolon)) parser_eat(p, Semicolon);
-    ast_statement = parse_statement(p, scope);
-    if(ast_statement) {
-        list_push(compound->children, ast_statement);
-    }
-  }
-
-  ast->if_body = compound;
+  ast->if_body = parse_statementss(p, scope);
   return ast;
 }
+
+ast_T* parse_match(parser_T* p, scope_T* scope) {
+  ast_T* ast = init_ast(AST_MATCH);
+  /*ast->scope = scope;
+  parser_eat(p, KW_If);
+  parser_eat(p, Lparen);
+  ast->if_condition = parse_boolean_expr(p, scope);
+  parser_eat(p, Rparen);
+  parser_eat(p, Lbrace);
+  ast->if_body = parse_statementss(p, scope);*/
+  return ast;
+}
+
 ast_T* parse_for_statement(parser_T* p, scope_T* scope){
   ast_T* ast = init_ast(AST_FOR);
   ast->scope = scope;
@@ -387,27 +448,6 @@ ast_T* parse_for_statement(parser_T* p, scope_T* scope){
   return ast;
 }
 
-ast_T* parse_struct_statement(parser_T* p, scope_T* scope) {
-  ast_T* ast = init_ast(AST_STRT);
-  parser_eat(p, KW_Struct);
-  ast->struct_name = parse_variable(p, scope);
-  parser_eat(p, Ident);
-  parser_eat(p, Lbrace);
-  ast_T* compound = init_ast(AST_COMPOUND);
-  compound->scope = scope;
-  ast_T* ast_statement = parse_statement(p, scope);
-  list_push(compound->children, ast_statement);
-  while(!curTokenIs(p, END_OF_FILE)) {
-    ast_statement = parse_statement(p, scope);
-    if(ast_statement) {
-        list_push(compound->children, ast_statement);
-    }
-    if(curTokenIs(p, Rparen)) parser_eat(p, Rparen);
-    if(curTokenIs(p, Semicolon)) parser_eat(p, Semicolon);
-  }
-  ast->for_body = compound;
-  return ast;
-}
 ast_T* parse_while_statement(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_WHILE);
   parser_eat(p, KW_While);
@@ -429,8 +469,33 @@ ast_T* parse_while_statement(parser_T* p, scope_T* scope) {
     }
   }
   ast->while_body = compound;
+   ast->scope = scope;
   return ast;
 }
+
+ast_T* parse_struct_statement(parser_T* p, scope_T* scope) {
+  ast_T* ast = init_ast(AST_STRT);
+  parser_eat(p, KW_Struct);
+  ast->struct_name = parse_variable(p, scope);
+  parser_eat(p, Ident);
+  parser_eat(p, Lbrace);
+  ast_T* compound = init_ast(AST_COMPOUND);
+  compound->scope = scope;
+  ast_T* ast_statement = parse_statement(p, scope);
+  list_push(compound->children, ast_statement);
+  while(!curTokenIs(p, END_OF_FILE)) {
+    ast_statement = parse_statement(p, scope);
+    if(ast_statement) {
+        list_push(compound->children, ast_statement);
+    }
+    if(curTokenIs(p, Rparen)) parser_eat(p, Rparen);
+    if(curTokenIs(p, Semicolon)) parser_eat(p, Semicolon);
+  }
+  ast->for_body = compound;
+   ast->scope = scope;
+  return ast;
+}
+
 
 
 ast_T* parse_boolean_expr(parser_T* p, scope_T* scope) {
@@ -457,17 +522,20 @@ ast_T* parse_boolean_expr(parser_T* p, scope_T* scope) {
   ast->boolean_left = left;
   ast->bop = op;
   ast->boolean_right = right; 
+   ast->scope = scope;
   return ast;
 }
 
 ast_T* parse_break(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_BREAK);
   parser_eat(p, KW_Break);
+   ast->scope = scope;
   return ast;
 }
 ast_T* parse_continue(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_CONTINUE);
   parser_eat(p, KW_Continue);
+   ast->scope = scope;
   return ast;
 }
 
@@ -484,9 +552,16 @@ ast_T* parse_variable_reassignment(parser_T* p, scope_T* scope) {
 
 ast_T* parse_index_op(parser_T* p, scope_T* scope) {
   ast_T* index = init_ast(AST_INDEXOP);
-  index->index_op_value = parse_variable(p, scope);
-  next_token(p);
-  parser_eat(p, Lbrack);
+  index->index_op_value = parse_binop(p, scope);
   index->index = parse_binop(p, scope);
+  index->scope = scope;
   return index;
+}
+
+ast_T* parse_import(parser_T* p, scope_T* scope) {
+  ast_T* ast = init_ast(AST_IMPORT);
+  parser_eat(p, KW_Import);
+  ast->import_file = parse_string(p, scope);
+  parser_eat(p, String);
+  return ast;
 }

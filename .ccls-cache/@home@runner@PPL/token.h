@@ -59,11 +59,14 @@ enum TokenType {
   KW_Float,
   KW_String,
   KW_Boolean,
-KW_Break,
-KW_Continue,
-KW_Struct,
-KW_Enum,
-KW_In
+  KW_Break,
+  KW_Continue,
+  KW_Struct,
+  KW_Enum,
+  KW_In,
+  KW_Match,
+  KW_Import,
+  KW_Const,
 };
 typedef struct TOKEN_STRUCT {
   char* text;

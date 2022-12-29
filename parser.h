@@ -48,4 +48,6 @@ ast_T* parse_enum_statement(parser_T* p, scope_T* scope);
 ast_T* parse_while_statement(parser_T* p, scope_T* scope);
 ast_T* parse_variable_reassignment(parser_T* p, scope_T* scope);
 ast_T* parse_index_op(parser_T* p, scope_T* scope);
+ast_T* parse_match(parser_T* p, scope_T* scope);
+ast_T* parse_import(parser_T* p, scope_T* scope);
 #endif

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 Lexer_t* init_lexer(char* src) {
   Lexer_t* l = calloc(1, sizeof(Lexer_t));
   l->src = src;
@@ -21,7 +22,7 @@ char* tos(char c) {
 
 void delChar(char** str, int idx) {
   char* word = *str;   
-memmove(&word[idx], &word[idx + 1], strlen(word) - idx);
+  memmove(&word[idx], &word[idx + 1], strlen(word) - idx);
 }
 void advance_lexer(Lexer_t* l) {
   l->pos+=1;
@@ -43,7 +44,7 @@ char peek_lexer(Lexer_t* l) {
   return l->src[l->pos+1];
 }
 void skip_whitespace_lexer(Lexer_t* l) {
-  while(l->cur == ' ' || l->cur == '\t' || l->cur == '\b') {
+  while(l->cur == ' ' || l->cur == '\t' || l->cur == '\b' || l->cur == '\n') {
     advance_lexer(l);
   }
 }
@@ -158,7 +159,7 @@ Token_t* next_token_lexer(Lexer_t* l) {
       token = init_token(tos(l->cur), Dot);
       break;
     case ';':
-    case '\n':
+    //case '\n':
       token = init_token(tos(l->cur), Semicolon);
       break;
     case '>':
@@ -258,7 +259,7 @@ Token_t* next_token_lexer(Lexer_t* l) {
         token = init_token(str, returnKeyword(str));
       }
       if(!token) {
-        fprintf(stdout, "[Line %d Column %d] Unexpected character: %c\n", l->line, l->column, l->cur);
+        fprintf(stdout, "[Line %d Column %d] Unexpected character: '%c'\n", l->line, l->column, l->cur);
         exit(1);
       }
   }
@@ -269,20 +270,27 @@ char* read_ident_lexer(Lexer_t* l) {
   char* buf = calloc(1, sizeof(char));
   buf[0] = '\0';
   while(isalnum(peek_lexer(l)) || peek_lexer(l) == '_') {
-    buf = realloc(buf, strlen(buf)+1);
+    buf = realloc(buf, strlen(buf)+2);
     strcat(buf, tos(l->cur));
     advance_lexer(l);
   }
+  buf = realloc(buf, strlen(buf)+2);
   strcat(buf, tos(l->cur));
   return buf;
 }
 char* read_int_lexer(Lexer_t* l) {
   char* buf = calloc(1, sizeof(char));
   buf[0] = '\0';
-  while(isdigit(peek_lexer(l))) {
-    buf = realloc(buf, strlen(buf)+1);
+  while(isdigit(peek_lexer(l)) || peek_lexer(l) == '_') {
+    buf = realloc(buf, strlen(buf)+2);
     strcat(buf, tos(l->cur));
     advance_lexer(l);
+  }
+
+  for(int i = 0; i < strlen(buf); i++) {
+    if(buf[i] == '_'){
+      delChar(&buf, i);
+    }
   }
   
   strcat(buf, tos(l->cur));
@@ -294,6 +302,10 @@ char* read_string_lexer(Lexer_t* l) {
   char* buf = calloc(1, sizeof(char));
   buf[0] = '\0';
   while(l->cur != quote) {
+    if(peek_lexer(l) == quote && l->cur == '\\') {
+      advance_lexer(l);
+      continue;
+    }
     if(l->cur == '\n') {
       fprintf(stdout, "[Line %d Column %d] String literal extends to newline\n", l->line, l->column);
       exit(1);
@@ -313,6 +325,10 @@ char* read_string_lexer(Lexer_t* l) {
         delChar(&buf, i+1);
       }
       else if(buf[i+1] == '\\') {
+        buf[i] = '\\';
+        delChar(&buf, i+1);
+      }
+        else if(buf[i+1] == '\"') {
         buf[i] = '\\';
         delChar(&buf, i+1);
       }

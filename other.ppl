@@ -1,0 +1,2 @@
+var p = 10;
+println(p * p + p);

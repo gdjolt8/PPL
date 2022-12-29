@@ -2,10 +2,10 @@
 
 char* keywords[] = {
   "if", "else", "true", "false", "func", "var", "while", "return", "for", "int", "float", "string", "boolean", "break", "continue", "struct", "enum"
-,"in"};
+,"in", "match", "import","const"};
 
 int keywordi[] = {
-  KW_If, KW_Else, KW_True, KW_False, KW_Func, KW_Var, KW_While, KW_Return, KW_For, KW_Int, KW_Float, KW_String, KW_Boolean, KW_Break, KW_Continue, KW_Struct, KW_Enum, KW_In
+  KW_If, KW_Else, KW_True, KW_False, KW_Func, KW_Var, KW_While, KW_Return, KW_For, KW_Int, KW_Float, KW_String, KW_Boolean, KW_Break, KW_Continue, KW_Struct, KW_Enum, KW_In,KW_Match,KW_Import, KW_Const
 };
 Token_t* init_token(char* text, enum TokenType kind) {
   Token_t* token = calloc(1, sizeof(struct TOKEN_STRUCT));
@@ -33,9 +33,9 @@ char* typeToStr(enum TokenType kind) {
     case String:
     return "String";
     case Colon:
-    return ".";
-    case Dot:
     return ":";
+    case Dot:
+    return ".";
     case Comma:
     return ",";
     case Semicolon:

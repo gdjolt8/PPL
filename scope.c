@@ -16,6 +16,7 @@ ast_T* scope_get_func(scope_T* scope, const char* fname) {
     if(strcmp(fdef->function_definition_name->ident_value, fname) == 0) {
       return fdef;
     }
+    
   }
   return NULL;
 }
@@ -24,10 +25,11 @@ ast_T* scope_add_var(scope_T* scope, ast_T* vdef) {
   return vdef;
 }
 ast_T* scope_get_var(scope_T* scope, const char* vname) {
-    for(int i = 0; i < scope->vars->used; i++) {
-    ast_T* fdef = (ast_T*)scope->vars->items[i];
-    if(strcmp(fdef->variable_def_name->ident_value, vname) == 0) {
-      return fdef;
+  for(int i = 0; i < scope->vars->used; i++) {
+    ast_T* vdef = (ast_T*)scope->vars->items[i];
+    //printf("Scope vn:%s, vv:%d\n\n", vdef->variable_def_name->ident_value, vdef->variable_value->type);
+    if(strcmp(vdef->variable_def_name->ident_value, vname) == 0) {
+      return vdef;
     }
   }
   return NULL;
