@@ -87,8 +87,14 @@ ast_T* first_index(ast_T* ast) {
 ast_T* visitor_visit_boolean_expr(visitor_T* visitor, ast_T* node) {
   ast_T* newop = init_ast(AST_BOOL);
   newop->boolean_left = visitor_visit(visitor, node->boolean_left);
+  if(!node->boolean_left) {
+    newop->boolean_value = node->boolean_value;
+    return newop;
+  }
+  newop->boolean_left = visitor_visit(visitor, node->boolean_left);
   newop->bop = node->bop;
   newop->boolean_right = visitor_visit(visitor, node->boolean_right);
+  
   return newop;
 }
 
@@ -97,7 +103,12 @@ ast_T* run_boolexpr(visitor_T* visitor, ast_T* node) {
   ast_T* left = visitor_visit(visitor, node->boolean_left);
   enum TokenType op = node->bop;
   ast_T* right = visitor_visit(visitor, node->boolean_right);
+  
   ast_T* ast = init_ast(AST_BOOL);
+  if(left->type == AST_BOOL && op == Rparen) {
+    ast->boolean_value = left->boolean_value;
+    return ast;
+  }
   if(op == Eqe) {
     if(left->type == right->type) {
       switch(left->type) {
@@ -411,26 +422,27 @@ ast_T* run_access(visitor_T* visitor, ast_T* ast) {
           list_push(ast->array_children, new_ast);
         }
         return ast;
-      }  else if(strcmp(right->function_call_name->ident_value, "join") == 0) {
-        visitor_expect_args(visitor, right->function_call_args, 2, (int[]){AST_ARRAY, AST_STRING});
-        ast_T* arr = visitor_visit(visitor, (ast_T*)right->function_call_args->items[0]);
-        ast_T* by = visitor_visit(visitor, (ast_T*)right->function_call_args->items[1]);
-        char* buf = (char*)calloc(arr->array_children->used * 100, sizeof(char));
-        for(int i = 0; i < arr->array_children->used; i++) {
-          strcat(buf, ((ast_T*)arr->array_children->items[0])->string_value);
-          strcat(buf, by->string_value);
+      }   else if(strcmp(right->function_call_name->ident_value, "substr") == 0) {
+        visitor_expect_args(visitor, right->function_call_args, 2, (int[]){AST_INT, AST_INT});
+        ast_T* from = visitor_visit(visitor, (ast_T*)right->function_call_args->items[0]);
+        ast_T* to = visitor_visit(visitor, (ast_T*)right->function_call_args->items[1]);
+        char* buf = (char*)calloc(to->int_value - from->int_value + 1, sizeof(char));
+        for(int i = from->int_value; i < to->int_value; i++) {
+          if(i == strlen(left->string_value)) {
+            fprintf(stderr, "RangeError: index out of range.\n");
+            exit(1);
+          }
+          strcat(buf, toss(left->string_value[i]));
         }
         ast_T* value = init_ast(AST_STRING);
         value->string_value = buf;
         return value;
-    }
-  }
+      }
   }
   fprintf(stderr, "AttributeError: no function called '%s' in %s object\n", right->function_call_name->ident_value, astt(left->type));
   exit(1);
 }
-
-
+  }
 ast_T* visitor_visit(visitor_T* visitor, ast_T* node) {
     if(!node) return init_ast(AST_NULL);
     
@@ -471,8 +483,7 @@ ast_T* visitor_visit(visitor_T* visitor, ast_T* node) {
 ast_T* visitor_visit_variable_def(visitor_T* visitor, ast_T* node) {
   node->variable_value = visitor_visit(visitor, node->variable_value);
   if(scope_get_var(node->scope, node->variable_def_name->ident_value)) {
-    fprintf(stderr, "Variable `%s` already exists in scope\n", node->variable_def_name->ident_value);
-    exit(1);
+    
   }
   scope_add_var(node->scope, node);
   return node;
@@ -588,6 +599,13 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
     ast_T* visited_ast = visitor_visit(visitor, node->function_call_args->items[0]);
     exit(visited_ast->int_value); 
     return init_ast(AST_NULL);
+  }
+  if(strcmp(node->function_call_name->ident_value, "randp") == 0) {
+    visitor_expect_args(visitor, node->function_call_args, 0, (int[]){});
+    srand(time(NULL)+rand()*rand()/rand()+100);
+    ast_T* a = init_ast(AST_INT);
+    a->int_value = rand() % 8080;
+    return a;
   }
   if(strcmp(node->function_call_name->ident_value, "toi") == 0) {
     visitor_expect_args(visitor, node->function_call_args, 1, (int[]){AST_STRING});
@@ -806,9 +824,9 @@ ast_T* visitor_visit_function_call(visitor_T* visitor, ast_T* node) {
     return socket_socket_accept(iargs);
   }
   if(strcmp(node->function_call_name->ident_value, "socket_read") == 0) {
-    visitor_expect_args(visitor, node->function_call_args, 3, (int[]){AST_INT, AST_STRING, AST_INT});
+    visitor_expect_args(visitor, node->function_call_args, 2, (int[]){AST_INT, AST_INT});
     List* iargs = init_list(sizeof(ast_T*));
-    for(int i = 0; i < 3; i++) {
+    for(int i = 0; i < 2; i++) {
       list_push(iargs, visitor_visit(visitor, node->function_call_args->items[i]));
     }
     return socket_socket_read(iargs);
@@ -1100,13 +1118,7 @@ ast_T* visitor_visit_variable_reassignment(visitor_T* visitor, ast_T* node) {
     }
   }
   if(newv->vop == Eq) {
-     if(new_var->variable_value->type == AST_INT) {
-      new_var->variable_value->int_value = newv->variable_reassignment_value->int_value;
-    } else if(new_var->variable_value->type == AST_FLOAT) {
-      new_var->variable_value->float_value = newv->variable_reassignment_value->float_value;
-    } else if(new_var->variable_value->type == AST_STRING) {
-      new_var->variable_value->string_value = newv->variable_reassignment_value->string_value;
-    }
+      new_var->variable_value = newv->variable_reassignment_value;
   }
   node->scope->vars->items[ind] = new_var;
   

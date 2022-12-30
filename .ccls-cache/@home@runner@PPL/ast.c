@@ -14,6 +14,7 @@ ast_T* init_ast(int type) {
   ast->ident_value = NULL;
   ast->int_value = 0;
   ast->float_value = 0.000;
+  ast->boolean_m1 = 0;
   ast->string_value = NULL;
   ast->array_children = ast->type == AST_ARRAY ? init_list(sizeof(void*)) : NULL;
   ast->function_call_args = ast->type == AST_FUNCTION_CALL ? init_list(sizeof(void*)) : NULL;

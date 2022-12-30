@@ -1,6 +1,8 @@
 { pkgs }: {
 	deps = [
-		pkgs.nasm
+		pkgs.toybox
+  pkgs.lsof
+  pkgs.nasm
   pkgs.strace
   pkgs.valgrind
   pkgs.clang_12

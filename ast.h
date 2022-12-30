@@ -17,6 +17,7 @@ typedef struct AST_STRUCT {
     AST_FLOAT,
     AST_STRING,
     AST_BOOL,
+    AST_OBJECT,
     AST_BINOP,
     AST_UNOP,
     AST_NOOP,
@@ -60,6 +61,7 @@ typedef struct AST_STRUCT {
   enum TokenType bop;
   struct AST_STRUCT* boolean_right;
   unsigned int boolean_value;
+  unsigned int boolean_m1;
   List* array_children;
   struct SCOPE_STRUCT* scope;
   struct AST_STRUCT* variable_name;
@@ -73,6 +75,9 @@ typedef struct AST_STRUCT {
 
   struct AST_STRUCT* enum_name;
   struct AST_STRUCT* enum_body;
+
+  List* object_keys;
+  List* object_values;
 
   struct AST_STRUCT* match_body;
 

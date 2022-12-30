@@ -25,10 +25,13 @@ ast_T* socket_socket_bind(List* args) {
   ast_T* addr =  (ast_T*)args->items[1];
   ast_T* port =  (ast_T*)args->items[2];
   
-  sockaddr.sin_family = AF_INET;
-  sockaddr.sin_addr.s_addr = inet_addr(addr->string_value);
-  sockaddr.sin_port = htons(port->int_value);
-  ret_val->int_value = bind(sock->int_value, (struct sockaddr *)&sockaddr, sizeof(sockaddr));
+  struct sockaddr_in server_addr;
+  
+
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons((int)port->int_value);
+  server_addr.sin_addr.s_addr = inet_addr(addr->string_value);
+  ret_val->int_value = bind(sock->int_value, (struct sockaddr *)&server_addr, sizeof(server_addr));
   
   return ret_val;
   
@@ -51,25 +54,25 @@ ast_T* socket_socket_accept(List* args) {
 ast_T* socket_socket_read(List* args) {
   ast_T* ret_val = init_ast(AST_INT);
   ast_T* sock =   (ast_T*)args->items[0];
-  ast_T* buf =   (ast_T*)args->items[1];
-  ast_T* bytes =   (ast_T*)args->items[2];
+  ast_T* bytes =   (ast_T*)args->items[1];
 
   char buffer[bytes->int_value];
   int n = read(sock->int_value, buffer, bytes->int_value);
+  ast_T* buf = init_ast(AST_STRING);
   buf->string_value = buffer;
   ret_val->int_value = n;
   if(errno != 0) {
-    fprintf(stderr, "Read error: %s\n", strerror(errno));
+    fprintf(stderr,"SocketError [%d]: %s\n", errno, strerror(errno));
     exit(1);
   }
-  return ret_val;
+  return buf;
 }
 ast_T* socket_socket_write(List* args) {
   ast_T* ret_val = init_ast(AST_INT);
   ast_T* sock =   (ast_T*)args->items[0];
   ast_T* buf =   (ast_T*)args->items[1];
   ast_T* bytes =   (ast_T*)args->items[2];
-  ret_val->int_value = write(sock->int_value, buf->string_value, bytes->int_value);
+  ret_val->int_value = send(sock->int_value, buf->string_value, bytes->int_value, 0);
   return ret_val;
 }
 

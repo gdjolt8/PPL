@@ -21,6 +21,13 @@ ast_T* scope_get_func(scope_T* scope, const char* fname) {
   return NULL;
 }
 ast_T* scope_add_var(scope_T* scope, ast_T* vdef) {
+  
+  for(int i = 0; i < scope->vars->used; i++) {
+    ast_T* def = (ast_T*)scope->vars->items[i];
+    if(strcmp(def->variable_def_name->ident_value, vdef->variable_def_name->ident_value) == 0) {
+      scope_remove_var(scope, def->variable_def_name->ident_value);
+    }
+  }
   list_push(scope->vars, vdef);
   return vdef;
 }

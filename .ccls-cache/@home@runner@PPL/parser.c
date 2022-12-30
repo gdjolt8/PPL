@@ -28,7 +28,6 @@ void add_error(parser_T* p, char* msg) {
   sprintf(Msg, "[Line %d, Column %d] %s", p->l->line, p->l->column, msg);
   list_push(p->errors, Msg);
   printf("%s\n", p->errors[p->errors->used - 1]);
-  free(Msg);
   exit(1);
 }
 
@@ -80,7 +79,6 @@ ast_T* parse_statement(parser_T* p, scope_T* scope) {
       case KW_Func: return parse_func_def(p, scope);
       case Ident: 
         if(peek_is_atype(p)) {
-          printf("Is atype\n");
           return parse_variable_reassignment(p, scope);
         }
         return parse_variable(p, scope);
@@ -159,7 +157,7 @@ ast_T* parse_string(parser_T* p, scope_T* scope) {
 }
 ast_T* parse_bool(parser_T* p, scope_T* scope) {
   ast_T* ast = init_ast(AST_BOOL);
-  ast->boolean_value = strcmp(p->curToken->text, "true") == 0 ? 1 : 0;
+  ast->boolean_value = strcmp(p->curToken->text, "true") == 0 ;
   ast->scope = scope;
   return ast;
 }
@@ -181,7 +179,7 @@ ast_T* parse_expr(parser_T* p, scope_T* scope) {
       return parse_array(p, scope);
     case KW_True:
     case KW_False:
-      return parse_boolean_expr(p, scope);
+      return parse_bool(p, scope);
     case KW_Var:
       return parse_var_declaration(p, scope);
     case KW_Func:
@@ -363,8 +361,20 @@ ast_T* parse_binop(parser_T* p, scope_T* scope) {
   ast_T* ast_left = parse_term(p, scope); // )
   while(
     curTokenIs(p, Plus) ||
-    curTokenIs(p, Minus)
+    curTokenIs(p, Minus) ||
+    curTokenIs(p, Eq) ||
+    curTokenIs(p, Neq)
   ) {
+    ast_T* ast_binop = init_ast(AST_BINOP);
+    ast_binop->left = ast_left;
+    ast_binop->op = p->curToken->kind;
+    next_token(p);
+    ast_binop->right = parse_term(p, scope);
+    ast_binop->scope = scope;
+    return ast_binop;
+  }
+
+  while(curTokenIs(p, Lt) || curTokenIs(p, Gt)) {
     ast_T* ast_binop = init_ast(AST_BINOP);
     ast_binop->left = ast_left;
     ast_binop->op = p->curToken->kind;
@@ -508,14 +518,12 @@ ast_T* parse_boolean_expr(parser_T* p, scope_T* scope) {
   } else {
     left = parse_binop(p, scope);
   }
-  // check for true or false == left
-  // true = 1, false = 0
-  //operator
   int op = p->curToken->kind;
   if(op==Lbrace || op==Rparen) {
-   fprintf(stderr, "Error: Boolean expression cannot be length 1\n");
-
-    exit(1);
+    ast->boolean_left = left;
+    ast->bop = op;
+    ast->boolean_right = NULL;
+   return ast;
   }
   next_token(p);
   ast_T* right = parse_binop(p, scope);
